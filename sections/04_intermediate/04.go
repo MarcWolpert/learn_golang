@@ -3,19 +3,27 @@ package main
 import (
 	"bufio"
 	crand "crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"math"
 	"math/big"
 	"math/rand"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+)
+
+const (
+	RWX = 0755
 )
 
 func main() {
@@ -481,7 +489,195 @@ func main() {
 	}
 	fmt.Println("Read string: ", line)
 
-	struct writer interface={}
+	// struct writer interface={}
+
+	//#82:Hashing/Cryptography
+	password := "password123"
+	hash := sha256.Sum256([]byte(password))
+	fmt.Printf("Password: %v == %v == %x\n", password, hash, hash)
+	//salting is an extra layer of security by combining an extra random value to the hash
+	//protects against security attacks like rainbow tables
+	salt, err := generateSalt()
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+	hashedPassword, err := hashPassword(password, salt)
+
+	//store the salt + password in database
+	saltStr := base64.StdEncoding.EncodeToString(salt)
+	fmt.Println("Salt: ", saltStr)
+	fmt.Println("Hashed password: ", hashedPassword)
+	//above is simulated storing in database
+	//below is how to decode and retrieve
+	decodeSalt, err := base64.StdEncoding.DecodeString(saltStr)
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+	//verify password
+	loginHash, err := hashPassword(password, decodeSalt)
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+	//compare stored hash with login hash
+	if hashedPassword == loginHash {
+		fmt.Println("Password is correct. You are logged in.")
+	} else {
+		fmt.Println("Login failed. Please check user credentials.")
+	}
+	fmt.Printf("Original Salt: %x\n", salt)
+
+	//#83:Writing Files
+	filename := "test.txt"
+	file, err := os.Create(filename)
+	if err != nil {
+		fmt.Println("Error creating file: ", err)
+	}
+	defer file.Close()
+	//write data to file
+	var someBytes []byte = []byte("Hello World\n")
+	_, err = file.Write(someBytes)
+	if err != nil {
+		fmt.Println("Error writing bytes: ", err)
+	}
+	fmt.Println("Data has been written to file successfully.")
+
+	//create a file and write a string to it
+	filename = "writeString.txt"
+	file, err = os.Create(filename)
+	if err != nil {
+		fmt.Println("Error creating file: ", err)
+	}
+	defer file.Close()
+	//write data to file
+	someBytes = []byte("Hello World\n")
+	_, err = file.WriteString(string(someBytes))
+	if err != nil {
+		fmt.Println("Error writing bytes: ", err)
+	}
+	_, err = file.WriteString("a\nb\nc\nd\ne\n")
+	if err != nil {
+		fmt.Println("Error writing string: ", err)
+		return
+	}
+	fmt.Println("Data has been written to file successfully.")
+
+	//#84:Reading Files
+	file, err = os.Open(filename)
+	if err != nil {
+		fmt.Printf("Error opening file %v: %v", filename, err)
+	}
+	defer func() {
+		fmt.Println("Closing open file. ")
+		file.Close()
+	}()
+	fmt.Println("File opened successfully.")
+
+	// //now reading the contents of the file
+	// data_file := make([]byte, 1024)
+	// //reads file into buffer
+	// _, err = file.Read(data_file)
+	// if err != nil {
+	// 	fmt.Println("Error reading from file: ", err)
+	// 	return
+	// }
+	// fmt.Printf("|File content: %v|\n", string(data_file))
+
+	//read file line by line
+	//create a scanner to read line by line
+	scanner := bufio.NewScanner(file)
+	//read line by line until EOF character
+	for scanner.Scan() {
+		line := scanner.Text()
+		fmt.Printf("Line: |%v|\n", line)
+	}
+	err = scanner.Err()
+	if err != nil {
+		fmt.Println("Error reading file: ", err)
+		return
+	}
+
+	//#85: Line Filters
+	filename = "example.txt"
+	file, err = os.Open(filename)
+	if err != nil {
+		fmt.Printf("Error opening file %v: %v\n", filename, err)
+		return
+	}
+	defer file.Close()
+
+	lineNumber := 1
+
+	scanner = bufio.NewScanner(file)
+	//keyword to filter lines
+	keyword := "important"
+	//read and filter lines
+	for scanner.Scan() {
+		line = scanner.Text()
+		if strings.Contains(line, keyword) {
+			//replace
+			line = strings.ReplaceAll(line, keyword, "dougie")
+			fmt.Printf("[Line# %3d]Filtered line: %v\n", lineNumber, line)
+			lineNumber++
+		}
+	}
+	err = scanner.Err()
+	if err != nil {
+		fmt.Printf("Error scanning file: %v", err)
+		return
+	}
+
+	// #86: File Paths
+	relativePath := "./data/file.txt"
+	absolutePath, _ := filepath.Abs(".")
+	joined := filepath.Join(absolutePath, relativePath)
+	fmt.Printf("Joined path: %v to %v \n %v \n", absolutePath, relativePath, joined)
+
+	normalizedPath := filepath.Clean("./data/../data/file.txt")
+	fmt.Println(normalizedPath)
+	filepath_x := "/home/user/docs/file.txt"
+	dir_x, file_x := filepath.Split(filepath_x)
+	//base is the last component of a filepath, can be directory or filename
+	fmt.Printf("dir: %v\npath: %v\nbase: %v\n", dir_x, file_x, filepath.Base(filepath_x))
+	//to get a bool is filepath.isAbs(string)
+	//to get extension use filepath.Ext(string)
+	no_extension := strings.TrimSuffix(filepath_x, filepath.Ext(filepath_x))
+	fmt.Println("Without suffix: ", no_extension)
+
+	//to get the relative position from string1 to string2, in terms of path, use the filepath.Rel(str1,str2)
+
+	// #87: Directories
+	checkError(os.Mkdir("subdir", RWX))
+	fmt.Println("Directory made successfully.")
+	// defer os.RemoveAll("subdir")
+
+	os.WriteFile("subdir/file.txt", []byte(""), RWX)
+
+	//recursively makes these
+	checkError(os.MkdirAll("subdir/parent/child", RWX))
+
+	//to read all the files in a directory
+	result_x, err := os.ReadDir("subdir/parent")
+	checkError(err)
+
+	for _, entry := range result_x {
+		fmt.Println(entry, entry.Name(), entry.IsDir(), entry.Type())
+	}
+
+	checkError(os.Chdir("subdir/parent/child"))
+
+	result_x, err = os.ReadDir(".")
+	checkError(err)
+
+	for _, entry := range result_x {
+		fmt.Println(entry, entry.Name(), entry.IsDir(), entry.Type())
+	}
+
+	//os.Getwd()
+	//os.Chdir() uses relative path
+
+	//filepath.WalkDir
+	//reads all files and directories in the tree, including root and calls a function defined on each of them
+
 }
 
 // can put structs within structs, both at a basic nesting level and you can define them within each other using anonymous level
@@ -647,4 +843,32 @@ func doSomething() error {
 }
 func doSomethingElse() error {
 	return errors.New("internal error")
+}
+
+// #82 Salting
+func generateSalt() ([]byte, error) {
+	salt := make([]byte, 16)
+	//use io to read byte slice directly into salt slice
+	//this reads values from the reader which is random in this case, and then puts it in the byte slice up to the point where it's full
+	//doesnt return the slice since it's pass by reference, so it's in place memory
+	_, err := io.ReadFull(crand.Reader, salt)
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return nil, err
+	}
+	return salt, err
+}
+
+func hashPassword(password string, salt []byte) (string, error) {
+	//basically appends two byte slices together if theres
+	saltedPassword := append(salt, []byte(password)...)
+	hash := sha256.Sum256(saltedPassword)
+	return base64.StdEncoding.EncodeToString(hash[:]), nil
+}
+
+// #87: Directories
+func checkError(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
