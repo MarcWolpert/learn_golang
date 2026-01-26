@@ -6,9 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"flag"
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
+	"log"
 	"math"
 	"math/big"
 	"math/rand"
@@ -20,13 +23,57 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	//called a blank import to prevent the compiler from complaining about this, and to use it for it's side effects
+	// _ "embed"
+	"embed"
 )
+
+// #89 Embed directive
+//
+
+//go:embed example.txt
+var content string
+
+//go:embed test.txt
+var content2 string
+
+//go:embed embedExample
+var embedExample embed.FS
 
 const (
 	RWX = 0755
 )
 
 func main() {
+	// #91: Command Line Sub Commands
+	subcommand1 := flag.NewFlagSet("firstSub", flag.ExitOnError)
+	subcommand2 := flag.NewFlagSet("secondSub", flag.ExitOnError)
+	firstFlag := subcommand1.Bool("processing", false, "Command processing status")
+	secondFlag := subcommand1.Int("bytes", 1024, "byte length of result")
+
+	flagsc2 := subcommand2.String("language", "Go", "Enter your language")
+
+	if len(os.Args) < 2 {
+		fmt.Println("This program requires additional commands.")
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "firstSub":
+		subcommand1.Parse(os.Args[2:])
+		fmt.Println("subcommand1: ")
+		fmt.Println("processing: ", *firstFlag)
+		fmt.Println("bytes: ", *secondFlag)
+	case "secondSub":
+		subcommand2.Parse(os.Args[2:])
+		fmt.Println("subcommand2: ")
+		fmt.Println("bytes: ", *flagsc2)
+	default:
+		fmt.Println("no subcommands entered!")
+		os.Exit(1)
+	}
+
 	closureExample(0, 10, 200)
 
 	sequence := closureExample2()
@@ -653,8 +700,16 @@ func main() {
 	os.WriteFile("subdir/file.txt", []byte(""), RWX)
 
 	//recursively makes these
-	checkError(os.MkdirAll("subdir/parent/child", RWX))
-
+	subdir := "subdir/parent/child"
+	wd, err := os.Getwd()
+	checkError(os.MkdirAll(subdir, RWX))
+	defer func() {
+		err = os.RemoveAll(filepath.Join(wd, strings.Split(subdir, "/")[0]))
+		if err != nil {
+			fmt.Println("Error: ", err)
+		}
+		fmt.Println("Removed ")
+	}()
 	//to read all the files in a directory
 	result_x, err := os.ReadDir("subdir/parent")
 	checkError(err)
@@ -677,6 +732,121 @@ func main() {
 
 	//filepath.WalkDir
 	//reads all files and directories in the tree, including root and calls a function defined on each of them
+
+	//#88: Temporary Files
+	file, err = os.CreateTemp("", "temporaryFile")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Temporary file created: ", file.Name())
+
+	defer file.Close()
+	defer os.Remove(file.Name())
+
+	//temporary directories
+	tmpDir, err := os.MkdirTemp(wd, "somePattern")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	fmt.Println("Temporary directory created: ", tmpDir)
+
+	// #89: Embed Directive
+	fmt.Println("Embedded content: ", content)
+	fmt.Println("Embedded content 2: ", content2)
+	file_embed, err := embedExample.ReadFile("embedExample/embedFolderExample.txt")
+
+	fmt.Println("Embedded folder: ", string(file_embed))
+	err = fs.WalkDir(embedExample, "embedExample", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		fmt.Println(path)
+		return nil
+	})
+	if err != nil {
+		log.Fatal("Couldn't walk through ", "embedExample: ", err)
+	}
+
+	// #90: Command Line Arguments/Flags
+	fmt.Println("Command: ", os.Args[0])
+	//each index is separated by a space
+	fmt.Println("Command 1: ", os.Args[1])
+	for i, arg := range os.Args {
+		fmt.Printf("Arg Index: %v : %v\n", i, arg)
+	}
+
+	//DEFINE FLAGS
+	var name_f string
+	var age_f int
+	var male_f bool
+
+	flag.StringVar(&name_f, "name", "Marcus", "name of the user")
+	flag.IntVar(&age_f, "age", 18, "Age of the user")
+	flag.BoolVar(&male_f, "male", true, "sex of the user")
+	flag.Parse()
+	fmt.Printf("Name: %v\nAge: %v\nSex: %v\n", name_f, age_f, male_f)
+	// #91: Command Line Sub Commands
+
+	// #92: Environment Variables
+	user := os.Getenv("USER")
+	home := os.Getenv("HOME")
+	fmt.Printf("User: %v\nHome: %v\n", user, home)
+	os.Setenv("FRUIT", "APPLE")
+	for _, e := range os.Environ() {
+		kvpair := strings.Split(e, "=")
+		fmt.Printf("%v = %v\n", kvpair[0], kvpair[1])
+	}
+	os.Unsetenv("FRUIT")
+	fmt.Printf("\n\n\n")
+	for _, e := range os.Environ() {
+		kvpair := strings.Split(e, "=")
+		fmt.Printf("%v = %v\n", kvpair[0], kvpair[1])
+	}
+	// #93: Logging
+	log.Println("This is a log message.")
+	//prefix
+	log.SetPrefix("INFO: ")
+	log.Println("This is an info message.")
+	//adding prefixes/flags to our log message
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	log.Println("This is a log message with date and time.")
+
+	var (
+		infoLogger  = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Llongfile)
+		warnLogger  = log.New(os.Stdout, "WARN: ", log.Ldate|log.Ltime|log.Lshortfile)
+		errorLogger = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+	)
+	infoLogger.Println("Info logging message.")
+	warnLogger.Println("Warn logger message.")
+	errorLogger.Println("Error logger message.")
+
+	//now to log to a file
+	file, err = os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Error opening log file: %v\n", err)
+	}
+	defer file.Close()
+	var (
+		debugLogger = log.New(file, "Debug: ", log.Ldate|log.Ltime|log.Llongfile)
+	)
+	debugLogger.Println("Debug logger written.")
+	//now update the logger
+
+	// #94: JSON
+
+	// #95: Struct Tags
+
+	// #96: XML
+
+	// #97: Go Extension
+
+	// #98: Type Conversions
+
+	// #99 IO Package
+
+	// #100: Math Package
 
 }
 
